@@ -122,6 +122,9 @@ table.prog td .bar{margin-top:4px}
 .att{display:flex;gap:6px;flex-wrap:wrap}
 .att .btn.on-p{background:var(--ok);border-color:var(--ok);color:#fff}
 .att .btn.on-a{background:var(--bad);border-color:var(--bad);color:#fff}
+tr.withdrawn td{opacity:.55}
+tr.withdrawn td:last-child{opacity:1}
+.badge-w{display:inline-block;font-size:.72rem;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--sunk);color:var(--cap);margin-top:3px}
 .st-p{color:var(--ok);font-weight:600;font-size:.78rem}
 .st-a{color:var(--bad);font-weight:600;font-size:.78rem}
 .empty{color:var(--muted);font-size:.9rem;padding:8px 0}
@@ -474,22 +477,26 @@ function viewReg(){
   const tbl=h("table",{class:"list"});
   tbl.append(h("tr",{},h("th",{text:"Code"}),h("th",{text:"Volontaire"}),...VISITS.map(v=>h("th",{},vtag(c,v))),h("th",{})));
   for(const pid of pids){
-    const p=pmap[pid]||{}, b=bookingsOf(pid);
+    const p=pmap[pid]||{}, b=bookingsOf(pid), W=!!p.withdrawn;
     const who=h("td",{},h("div",{text:p.name||"—"}),
+      W?h("div",{},h("span",{class:"badge-w",text:"Abandon le "+fmtShort(p.withdrawn)})):null,
       (p.tel||p.mail)?h("div",{class:"sub mono",style:"font-size:.75rem",text:[p.tel,p.mail].filter(Boolean).join(" · ")}):null,
       p.source?h("div",{class:"sub",style:"font-size:.72rem",text:p.source==="en ligne"?"inscrit·e en ligne":"inscrit·e par l'équipe"}):null);
     const cells=VISITS.map(v=>{
       const x=b[v];
       if(x) return h("td",{},h("div",{class:"chip"},h("span",{text:fmtShort(x.date)}),h("span",{class:"mono",text:x.time}),
           x.status==="Présent"?h("span",{class:"st-p",text:"✓ présent"}):x.status==="Absent"?h("span",{class:"st-a",text:"✗ absent"}):null),
-        h("div",{class:"cell-actions"},h("button",{class:"btn small",onclick:()=>openPicker(c,pid,v,x)},"Déplacer")));
+        W?null:h("div",{class:"cell-actions"},h("button",{class:"btn small",onclick:()=>openPicker(c,pid,v,x)},"Déplacer")));
+      if(W) return h("td",{class:"sub",text:"—"});
       return h("td",{},h("div",{class:"missing",text:"Non planifié"}),h("div",{class:"cell-actions"},h("button",{class:"btn small",onclick:()=>openPicker(c,pid,v,null)},"Planifier")));
     });
     const acts=h("td",{},h("div",{class:"cell-actions"},
       p.link?h("button",{class:"btn small",title:"Lien personnel du volontaire pour changer ses horaires",onclick:async e=>{const t=e.currentTarget;try{await navigator.clipboard.writeText(p.link);t.textContent="Lien copié";}catch(err){status("Lien personnel de "+pid+" : "+p.link,"");}}},"Copier son lien"):null,
       p.mail?h("button",{class:"btn small",onclick:async e=>{const t=e.currentTarget;t.disabled=true;t.textContent="Envoi…";try{await call("adminSendRecap",pw,pid);t.textContent="Envoyé";}catch(err){t.textContent="Échec";status(errText(err),"err");}}},"Renvoyer l'e-mail"):null,
-      h("button",{class:"btn small danger",onclick:e=>armDelete(e.currentTarget,()=>doRemove(pid))},"Retirer")));
-    tbl.append(h("tr",{},h("td",{class:"code",text:pid}),who,...cells,acts));
+      W?h("button",{class:"btn small",title:"Annule l'abandon. Les rendez-vous libérés ne sont pas recréés : replanifiez-les.",onclick:e=>{e.currentTarget.disabled=true;doWithdraw(pid,false);}},"Réintégrer")
+       :h("button",{class:"btn small",title:"Sort le volontaire de l'étude : ses rendez-vous à venir sont libérés et il ne reçoit plus de rappels.",onclick:e=>armDelete(e.currentTarget,()=>doWithdraw(pid,true))},"Abandon"),
+      h("button",{class:"btn small danger",title:"Supprime complètement le volontaire et ses rendez-vous (erreur de saisie, doublon…)",onclick:e=>armDelete(e.currentTarget,()=>doRemove(pid))},"Supprimer")));
+    tbl.append(h("tr",{class:W?"withdrawn":""},h("td",{class:"code",text:pid}),who,...cells,acts));
   }
   sheet.append(h("div",{class:"reg"},tbl));
   return sheet;
@@ -499,6 +506,7 @@ function armDelete(btn,fn){
   const label=btn.textContent;btn.dataset.arm="1";btn.textContent="Confirmer ?";
   setTimeout(()=>{if(btn.isConnected&&btn.dataset.arm){delete btn.dataset.arm;btn.textContent=label;}},4000);
 }
+async function doWithdraw(pid,on){try{applyData(await call("adminWithdraw",pw,pid,on));render();}catch(e){status(errText(e),"err");}}
 async function doRemove(pid){try{applyData(await call("adminRemove",pw,pid));render();}catch(e){status(errText(e),"err");}}
 async function refresh(){try{applyData(await call("adminData",pw));status("");render();}catch(e){status(errText(e),"err");}}
 function openPicker(c,pid,visit,existing){
@@ -524,8 +532,10 @@ function viewSuivi(){
   const sheet=h("div",{class:"sheet"});
   const B=data.bookings, nC=Object.keys(COHORTS).length;
   const enrolled=new Set(data.people.map(p=>p.pid));B.forEach(b=>enrolled.add(b.pid));
+  const wset=new Set(data.people.filter(p=>p.withdrawn).map(p=>p.pid));
   const present=B.filter(b=>b.status==="Présent"), absent=B.filter(b=>b.status==="Absent");
-  const expected=enrolled.size*VISITS.length;
+  // visites attendues : 4 par volontaire actif + les visites déjà faites/manquées par ceux qui ont abandonné
+  const expected=(enrolled.size-wset.size)*VISITS.length+B.filter(b=>wset.has(b.pid)).length;
   const pres={};present.forEach(b=>{(pres[b.pid]??=new Set()).add(b.visit);});
   const complete=Object.values(pres).filter(s=>s.size===VISITS.length).length;
   const pending=B.filter(b=>!b.status&&b.date<today).length;
@@ -534,22 +544,24 @@ function viewSuivi(){
   const barEl=(p,a,t)=>h("div",{class:"bar"},h("i",{class:"p",style:`width:${pct(p,t)}%`}),h("i",{class:"a",style:`width:${pct(a,t)}%`}));
   sheet.append(h("div",{class:"step-h"},h("h2",{text:"Vue d'ensemble de l'étude"}),h("span",{style:"flex:1"}),h("button",{class:"btn small",onclick:refresh},"Actualiser")));
   sheet.append(h("div",{class:"kpis"},
-    kpi(enrolled.size,PER_COHORT*nC,"Volontaires inscrits",`${pct(enrolled.size,PER_COHORT*nC)} % de l'objectif`,barEl(enrolled.size,0,PER_COHORT*nC)),
+    kpi(enrolled.size,PER_COHORT*nC,"Volontaires inscrits",`${pct(enrolled.size,PER_COHORT*nC)} % de l'objectif`+(wset.size?` · ${enrolled.size-wset.size} actifs`:""),barEl(enrolled.size-wset.size,wset.size,PER_COHORT*nC)),
     kpi(present.length,expected,"Visites réalisées",`${pct(present.length,expected)} % des visites prévues`,barEl(present.length,absent.length,expected)),
     kpi(complete,enrolled.size,"Protocole complet","volontaires venus aux 4 visites"),
-    kpi(absent.length,null,"Absences",pending?`${pending} visite(s) passée(s) sans présence cochée`:"toutes les visites passées sont renseignées")));
+    kpi(absent.length,null,"Absences",pending?`${pending} visite(s) passée(s) sans présence cochée`:"toutes les visites passées sont renseignées"),
+    kpi(wset.size,enrolled.size,"Abandons",wset.size?`${pct(wset.size,enrolled.size)} % des inscrits`:"aucun abandon")));
   // by cohort x visit
   const tbl=h("table",{class:"list prog"});
   tbl.append(h("tr",{},h("th",{text:"Cohorte"}),h("th",{text:"Inscrits"}),...VISITS.map(v=>h("th",{text:v})),h("th",{text:"Total"})));
   for(const c in COHORTS){
     const ids=new Set(data.people.filter(p=>p.cohort===c).map(p=>p.pid));B.forEach(b=>{if(b.cohort===c)ids.add(b.pid);});
-    const n=ids.size;
-    const cell=list=>{const p=list.filter(b=>b.status==="Présent").length,a=list.filter(b=>b.status==="Absent").length;
+    const n=ids.size, nw=[...ids].filter(x=>wset.has(x)).length, active=n-nw;
+    const cell=(list,v)=>{const p=list.filter(b=>b.status==="Présent").length,a=list.filter(b=>b.status==="Absent").length;
+      const toPlan=v?[...ids].filter(x=>!wset.has(x)&&!list.some(b=>b.pid===x)).length:0;
       if(!n&&!list.length) return h("td",{class:"sub",text:"—"});
-      return h("td",{},h("div",{},h("b",{text:String(p)}),h("span",{class:"sub",text:` / ${list.length} prévue${list.length>1?"s":""}`+(n-list.length>0?` · ${n-list.length} à planifier`:"")})),barEl(p,a,n||1));};
+      return h("td",{},h("div",{},h("b",{text:String(p)}),h("span",{class:"sub",text:` / ${list.length} prévue${list.length>1?"s":""}`+(toPlan>0?` · ${toPlan} à planifier`:"")})),barEl(p,a,n||1));};
     const cb=B.filter(b=>b.cohort===c);
-    tbl.append(h("tr",{},h("td",{},h("span",{class:"vtag",style:`--c:${COHORTS[c].color};--cfg:${COHORTS[c].fg}`,text:c})),h("td",{class:"mono",text:`${n} / ${PER_COHORT}`}),
-      ...VISITS.map(v=>cell(cb.filter(b=>b.visit===v))),cell(cb)));
+    tbl.append(h("tr",{},h("td",{},h("span",{class:"vtag",style:`--c:${COHORTS[c].color};--cfg:${COHORTS[c].fg}`,text:c})),h("td",{},h("div",{class:"mono",text:`${n} / ${PER_COHORT}`}),nw?h("div",{class:"sub",style:"font-size:.75rem",text:`dont ${nw} abandon${nw>1?"s":""}`}):null),
+      ...VISITS.map(v=>cell(cb.filter(b=>b.visit===v),v)),cell(cb)));
   }
   sheet.append(h("div",{class:"step"},h("h3",{text:"Avancement par cohorte et par visite"}),
     h("div",{class:"legend"},h("span",{style:"--k:var(--ok)",text:"présents"}),h("span",{style:"--k:var(--bad)",text:"absents"}),h("span",{style:"--k:var(--sunk)",text:"pas encore venus / à planifier"})),

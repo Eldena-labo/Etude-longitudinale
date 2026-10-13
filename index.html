@@ -19,6 +19,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);
 .wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:20px 60px;display:grid;gap:20px}
 header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
 h1{font-size:1.9rem;margin:0;color:var(--accent);text-wrap:balance}
+.top-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#sheet-link{text-decoration:none}
 .brand{display:flex;align-items:center;gap:14px;min-width:0}
 #logo{max-height:56px;max-width:160px;width:auto;object-fit:contain}
 h2{font-size:1.05rem;margin:0;text-wrap:balance}
@@ -103,6 +105,25 @@ table.day th{color:var(--muted);font-weight:600;white-space:nowrap;padding:2px 6
 table.day th.t{font-family:var(--font-mono);text-align:right}
 table.day td{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:4px;min-width:80px;font-family:var(--font-mono)}
 table.day td.full{background:var(--sunk)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--surface);display:grid;gap:6px}
+.kpi .v{font-size:1.7rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:.9rem;font-weight:500;color:var(--muted)}
+.kpi .l{font-weight:600;font-size:.88rem}
+.bar{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar .p{background:var(--ok)} .bar .a{background:var(--bad)} .bar .b{background:var(--line)}
+table.prog td{font-variant-numeric:tabular-nums;min-width:110px}
+table.prog td .bar{margin-top:4px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.8rem;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--k)}
+.daynav{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.daynav input[type=date]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.att{display:flex;gap:6px;flex-wrap:wrap}
+.att .btn.on-p{background:var(--ok);border-color:var(--ok);color:#fff}
+.att .btn.on-a{background:var(--bad);border-color:var(--bad);color:#fff}
+.st-p{color:var(--ok);font-weight:600;font-size:.78rem}
+.st-a{color:var(--bad);font-weight:600;font-size:.78rem}
 .empty{color:var(--muted);font-size:.9rem;padding:8px 0}
 .login{max-width:380px}
 .modal{position:fixed;inset:0;background:rgb(0 0 0/.45);display:grid;place-items:center;padding:16px;z-index:10}
@@ -121,10 +142,14 @@ table.day td.full{background:var(--sunk)}
       <p class="sub" id="subtitle"></p>
       </div>
     </div>
+    <div class="top-actions">
     <div class="tabs" role="tablist" id="tabs" hidden>
       <button role="tab" data-tab="book" aria-selected="true">Inscrire</button>
       <button role="tab" data-tab="reg" aria-selected="false">Volontaires</button>
       <button role="tab" data-tab="plan" aria-selected="false">Planning</button>
+      <button role="tab" data-tab="suivi" aria-selected="false">Suivi</button>
+    </div>
+    <a id="sheet-link" class="btn small" target="_blank" rel="noopener" hidden>Ouvrir le Google Sheet ↗</a>
     </div>
   </header>
   <div id="status" class="banner" hidden></div>
@@ -228,7 +253,7 @@ async function start(){
   cur=Object.keys(COHORTS).find(c=>isOpen(c)&&(counts[c]||0)<perCohort())||null;
   render();
 }
-function applyData(d){data=d;occ=d.occ;today=d.today;counts={};d.people.forEach(p=>counts[p.cohort]=(counts[p.cohort]||0)+1);}
+function applyData(d){if(d.sheetUrl){const a=$("#sheet-link");a.href=d.sheetUrl;a.hidden=false;}data=d;occ=d.occ;today=d.today;counts={};d.people.forEach(p=>counts[p.cohort]=(counts[p.cohort]||0)+1);}
 
 /* ---------- connexion équipe ---------- */
 function renderLogin(){
@@ -245,6 +270,7 @@ function renderLogin(){
 /* ---------- rendu ---------- */
 function render(){
   if(MODE==="rdv"){$("#view").replaceChildren(viewMine());return;}
+  if(tab==="suivi"){$("#coh-section").hidden=true;$("#view").replaceChildren(viewSuivi());return;}
   renderCohorts();
   const v=$("#view");
   if(!cur){v.replaceChildren(h("div",{class:"sheet"},h("p",{class:"empty",text:"Aucune cohorte n'est ouverte aux inscriptions pour le moment."+(BOOT.contact?" Contact : "+BOOT.contact:"")})));return;}
@@ -454,7 +480,8 @@ function viewReg(){
       p.source?h("div",{class:"sub",style:"font-size:.72rem",text:p.source==="en ligne"?"inscrit·e en ligne":"inscrit·e par l'équipe"}):null);
     const cells=VISITS.map(v=>{
       const x=b[v];
-      if(x) return h("td",{},h("div",{class:"chip"},h("span",{text:fmtShort(x.date)}),h("span",{class:"mono",text:x.time})),
+      if(x) return h("td",{},h("div",{class:"chip"},h("span",{text:fmtShort(x.date)}),h("span",{class:"mono",text:x.time}),
+          x.status==="Présent"?h("span",{class:"st-p",text:"✓ présent"}):x.status==="Absent"?h("span",{class:"st-a",text:"✗ absent"}):null),
         h("div",{class:"cell-actions"},h("button",{class:"btn small",onclick:()=>openPicker(c,pid,v,x)},"Déplacer")));
       return h("td",{},h("div",{class:"missing",text:"Non planifié"}),h("div",{class:"cell-actions"},h("button",{class:"btn small",onclick:()=>openPicker(c,pid,v,null)},"Planifier")));
     });
@@ -491,12 +518,82 @@ function openPicker(c,pid,visit,existing){
   root.replaceChildren(h("div",{class:"modal",onclick:e=>{if(e.target===e.currentTarget)close();}},sheet));
 }
 
+/* ---------- équipe : suivi de l'étude ---------- */
+let suiviDay=null;
+function viewSuivi(){
+  const sheet=h("div",{class:"sheet"});
+  const B=data.bookings, nC=Object.keys(COHORTS).length;
+  const enrolled=new Set(data.people.map(p=>p.pid));B.forEach(b=>enrolled.add(b.pid));
+  const present=B.filter(b=>b.status==="Présent"), absent=B.filter(b=>b.status==="Absent");
+  const expected=enrolled.size*VISITS.length;
+  const pres={};present.forEach(b=>{(pres[b.pid]??=new Set()).add(b.visit);});
+  const complete=Object.values(pres).filter(s=>s.size===VISITS.length).length;
+  const pending=B.filter(b=>!b.status&&b.date<today).length;
+  const pct=(a,b)=>b?Math.round(a/b*100):0;
+  const kpi=(v,tot,l,s,bar)=>h("div",{class:"kpi"},h("div",{class:"v"},String(v),tot!=null?h("small",{text:" / "+tot}):null),h("div",{class:"l",text:l}),s?h("div",{class:"sub",style:"font-size:.8rem",text:s}):null,bar||null);
+  const barEl=(p,a,t)=>h("div",{class:"bar"},h("i",{class:"p",style:`width:${pct(p,t)}%`}),h("i",{class:"a",style:`width:${pct(a,t)}%`}));
+  sheet.append(h("div",{class:"step-h"},h("h2",{text:"Vue d'ensemble de l'étude"}),h("span",{style:"flex:1"}),h("button",{class:"btn small",onclick:refresh},"Actualiser")));
+  sheet.append(h("div",{class:"kpis"},
+    kpi(enrolled.size,PER_COHORT*nC,"Volontaires inscrits",`${pct(enrolled.size,PER_COHORT*nC)} % de l'objectif`,barEl(enrolled.size,0,PER_COHORT*nC)),
+    kpi(present.length,expected,"Visites réalisées",`${pct(present.length,expected)} % des visites prévues`,barEl(present.length,absent.length,expected)),
+    kpi(complete,enrolled.size,"Protocole complet","volontaires venus aux 4 visites"),
+    kpi(absent.length,null,"Absences",pending?`${pending} visite(s) passée(s) sans présence cochée`:"toutes les visites passées sont renseignées")));
+  // by cohort x visit
+  const tbl=h("table",{class:"list prog"});
+  tbl.append(h("tr",{},h("th",{text:"Cohorte"}),h("th",{text:"Inscrits"}),...VISITS.map(v=>h("th",{text:v})),h("th",{text:"Total"})));
+  for(const c in COHORTS){
+    const ids=new Set(data.people.filter(p=>p.cohort===c).map(p=>p.pid));B.forEach(b=>{if(b.cohort===c)ids.add(b.pid);});
+    const n=ids.size;
+    const cell=list=>{const p=list.filter(b=>b.status==="Présent").length,a=list.filter(b=>b.status==="Absent").length;
+      if(!n&&!list.length) return h("td",{class:"sub",text:"—"});
+      return h("td",{},h("div",{},h("b",{text:String(p)}),h("span",{class:"sub",text:` / ${list.length} prévue${list.length>1?"s":""}`+(n-list.length>0?` · ${n-list.length} à planifier`:"")})),barEl(p,a,n||1));};
+    const cb=B.filter(b=>b.cohort===c);
+    tbl.append(h("tr",{},h("td",{},h("span",{class:"vtag",style:`--c:${COHORTS[c].color};--cfg:${COHORTS[c].fg}`,text:c})),h("td",{class:"mono",text:`${n} / ${PER_COHORT}`}),
+      ...VISITS.map(v=>cell(cb.filter(b=>b.visit===v))),cell(cb)));
+  }
+  sheet.append(h("div",{class:"step"},h("h3",{text:"Avancement par cohorte et par visite"}),
+    h("div",{class:"legend"},h("span",{style:"--k:var(--ok)",text:"présents"}),h("span",{style:"--k:var(--bad)",text:"absents"}),h("span",{style:"--k:var(--sunk)",text:"pas encore venus / à planifier"})),
+    h("div",{class:"reg"},tbl)));
+  // attendance for a day
+  const days=[...new Set(B.map(b=>b.date))].sort();
+  if(!suiviDay) suiviDay=days.find(d=>d>=today)||days[days.length-1]||today;
+  const idx=days.indexOf(suiviDay);
+  const prev=idx>0?days[idx-1]:days.filter(d=>d<suiviDay).pop();
+  const next=idx>=0?days[idx+1]:days.find(d=>d>suiviDay);
+  const pmap={};data.people.forEach(p=>pmap[p.pid]=p);
+  const list=B.filter(b=>b.date===suiviDay).sort((a,b)=>a.time.localeCompare(b.time)||a.pid.localeCompare(b.pid));
+  const dayTbl=h("table",{class:"list"});
+  dayTbl.append(h("tr",{},h("th",{text:"Heure"}),h("th",{text:"Code"}),h("th",{text:"Volontaire"}),h("th",{text:"Visite"}),h("th",{text:"Présence"})));
+  for(const b of list){
+    const p=pmap[b.pid]||{};
+    const set=async(st,btn)=>{btn.disabled=true;try{applyData(await call("adminSetStatus",pw,b.id,st));render();}catch(e){status(errText(e),"err");btn.disabled=false;}};
+    const isP=b.status==="Présent", isA=b.status==="Absent";
+    dayTbl.append(h("tr",{},h("td",{class:"mono",text:b.time}),h("td",{class:"code",text:b.pid}),
+      h("td",{},h("div",{text:p.name||"—"}),p.tel?h("div",{class:"sub mono",style:"font-size:.75rem",text:p.tel}):null),
+      h("td",{},vtag(b.cohort,b.visit)),
+      h("td",{},h("div",{class:"att"},
+        h("button",{class:"btn small"+(isP?" on-p":""),"aria-pressed":String(isP),onclick:e=>set(isP?"":"present",e.currentTarget)},"✓ Présent"),
+        h("button",{class:"btn small"+(isA?" on-a":""),"aria-pressed":String(isA),onclick:e=>set(isA?"":"absent",e.currentTarget)},"✗ Absent")))));
+  }
+  const dateIn=h("input",{type:"date",id:"suivi-day",value:suiviDay,onchange:e=>{if(e.target.value){suiviDay=e.target.value;render();}}});
+  sheet.append(h("div",{class:"step"},
+    h("div",{class:"step-h"},h("h3",{text:"Présences du jour"}),h("span",{class:"sub",text:"Cliquez à nouveau sur un bouton pour l'annuler."})),
+    h("div",{class:"daynav"},
+      h("button",{class:"btn small",disabled:!prev,onclick:()=>{suiviDay=prev;render();}},"← Jour précédent"),
+      dateIn,
+      h("button",{class:"btn small",disabled:!next,onclick:()=>{suiviDay=next;render();}},"Jour suivant →"),
+      h("button",{class:"btn small",onclick:()=>{suiviDay=today;render();}},"Aujourd'hui"),
+      h("span",{class:"sub",text:`${fmtLong(suiviDay)} · ${list.length} rendez-vous`})),
+    list.length?h("div",{class:"reg"},dayTbl):h("p",{class:"empty",text:"Aucun rendez-vous ce jour-là. Utilisez les flèches pour aller au jour de visite précédent ou suivant."})));
+  return sheet;
+}
+
 /* ---------- équipe : planning par semaine ---------- */
 function viewPlan(){
   const c=cur, C=COHORTS[c], sheet=h("div",{class:"sheet"});
   sheet.append(h("div",{class:"step-h"},h("h2",{text:`Planning ${c}`}),h("span",{class:"sub",text:`${CAP} place(s) par heure · codes des volontaires réservés`}),
     h("span",{style:"flex:1"}),h("button",{class:"btn small",onclick:refresh},"Actualiser")));
-  const by={};data.bookings.forEach(b=>{(by[key(b.date,b.time)]??=[]).push(b.pid);});
+  const by={};data.bookings.forEach(b=>{(by[key(b.date,b.time)]??=[]).push(b.pid+(b.status==="Présent"?" ✓":b.status==="Absent"?" ✗":""));});
   const wrap=h("div",{class:"weekplan"});
   for(const v of VISITS){
     const tbl=h("table",{class:"day"});

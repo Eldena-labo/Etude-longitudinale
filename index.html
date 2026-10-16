@@ -135,6 +135,10 @@ tr.withdrawn td:last-child{opacity:1}
 .seg{display:inline-flex;gap:4px;background:var(--sunk);padding:3px;border-radius:999px;border:1px solid var(--line)}
 .seg button{border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;font-size:.8rem;padding:4px 12px;border-radius:999px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0/.12)}
+.quest{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;border-radius:var(--r);border:1px solid var(--line);background:var(--bg)}
+.quest a{text-decoration:none}
+.q-ok{display:inline-block;font-size:.74rem;font-weight:600;padding:1px 8px;border-radius:999px;background:#e3f2e8;color:var(--ok);white-space:nowrap}
+.q-no{display:inline-block;font-size:.74rem;font-weight:600;padding:1px 8px;border-radius:999px;background:#fbeae4;color:var(--bad);white-space:nowrap}
 .st-p{color:var(--ok);font-weight:600;font-size:.78rem}
 .st-a{color:var(--bad);font-weight:600;font-size:.78rem}
 .empty{color:var(--muted);font-size:.9rem;padding:8px 0}
@@ -221,6 +225,13 @@ const fmtRange=a=>{const o={day:"numeric",month:"short"};return toDate(a[0]).toL
 const daysFrom=(a,b)=>Math.round((toDate(b)-toDate(a))/864e5);
 const weeksBetween=(a,b)=>Math.round((toDate(b)-toDate(a))/(7*864e5));
 const key=(d,t)=>d+"_"+t;
+/* Questionnaire : lien avec le code pré-rempli (si configuré dans Code.gs) */
+const questUrl=pid=>{if(!BOOT.questionnaire)return"";if(!BOOT.questField||!pid)return BOOT.questionnaire;
+  const base=BOOT.questionnaire.replace(/([?&])usp=[^&#]*&?/,"$1").replace(/[?&]$/,"");
+  return base+(base.includes("?")?"&":"?")+"usp=pp_url&"+BOOT.questField+"="+encodeURIComponent(pid);};
+const questBox=pid=>BOOT.questionnaire?h("div",{class:"quest"},
+  h("span",{text:"Merci de remplir le questionnaire de l'étude"+(pid?` (code participant : ${pid})`:"")+"."}),
+  h("a",{class:"btn primary small",href:questUrl(pid),target:"_blank",rel:"noopener"},"Remplir le questionnaire ↗")):null;
 function errText(e){return String((e&&e.message)||e).replace(/^(Exception|Error):\s*/,"");}
 function status(text,kind){const s=$("#status");s.textContent=text||"";s.className="banner "+(kind||"");s.hidden=!text;}
 /* Lieux : chaque lieu a sa propre capacité. SITE = lieu des grilles affichées en ce moment. */
@@ -436,6 +447,7 @@ function recapText(r){
   r.done.forEach(d=>L.push(`• ${d.visit} — ${fmtLong(d.date)} à ${d.time.replace(":","h")}`));
   r.failed.forEach(f=>L.push(`• ${f.visit} — date à confirmer`));
   if(r.site)L.push("",`Lieu (identique pour toutes les visites) : ${siteAddr(r.site)}`);
+  if(BOOT.questionnaire)L.push("",`Merci de remplir le questionnaire de l'étude (code participant : ${r.pid}) :`,questUrl(r.pid));
   L.push("","En cas d'empêchement, merci de nous prévenir le plus tôt possible"+(BOOT.contact?` : ${BOOT.contact}`:"")+".");
   return L.join("\n");
 }
@@ -448,6 +460,7 @@ function viewResult(sheet){
     MODE==="equipe"?null:h("p",{class:"sub",text:`Votre code participant : ${r.pid}. Notez-le, il vous sera demandé lors des visites.`}),
     h("ul",{class:"done-list"},...r.done.map(d=>h("li",{},vtag(c,d.visit),h("span",{text:`${fmtLong(d.date)} à ${d.time.replace(":","h")}`})))),
     r.site?h("p",{},h("b",{text:"Lieu : "}),h("span",{text:siteAddr(r.site)})):null,
+    MODE==="equipe"?null:questBox(r.pid),
     missing.length?h("p",{class:"missing",text:`Non réservé${missing.length>1?"es":"e"} : ${missing.join(", ")}`+(MODE==="equipe"?" — à planifier depuis l'onglet Volontaires.":" — l'équipe vous recontactera pour fixer ces dates.")}):null,
     r.mail?h("p",{class:"sub",text:`Un e-mail de confirmation avec les dates (et un fichier pour l'ajouter à l'agenda) a été envoyé à ${r.mail}.`}):null));
   if(MODE==="equipe"){
@@ -470,7 +483,8 @@ function viewMine(){
   const c=mine.cohort, sheet=h("div",{class:"sheet"});
   SITE=mine.site||cohortSites(c)[0];
   sheet.append(h("div",{class:"step-h"},h("h2",{text:(mine.name?mine.name+" · ":"")+"code "+mine.pid})),
-    h("p",{},h("b",{text:"Lieu de vos visites : "}),h("span",{text:siteAddr(SITE)})));
+    h("p",{},h("b",{text:"Lieu de vos visites : "}),h("span",{text:siteAddr(SITE)})),
+    mine.questDone?null:questBox(mine.pid));
   const by={};mine.bookings.forEach(b=>by[b.visit]=b);
   const list=h("div",{class:"props"});
   for(const v of VISITS){
@@ -506,6 +520,7 @@ function viewReg(){
   const pmap={};data.people.forEach(p=>pmap[p.pid]=p);
   sheet.append(h("div",{class:"step-h"},h("h2",{text:`Volontaires ${c}`}),h("span",{class:"sub",text:`${pids.length} inscrits · la liste complète est aussi dans le Google Sheet`}),
     h("span",{style:"flex:1"}),h("button",{class:"btn small",onclick:refresh},"Actualiser")));
+  if(data.questError) sheet.append(h("div",{class:"banner err",text:data.questError}));
   if(!pids.length){sheet.append(h("p",{class:"empty",text:"Aucun volontaire dans cette cohorte pour le moment."}));return sheet;}
   const tbl=h("table",{class:"list"});
   tbl.append(h("tr",{},h("th",{text:"Code"}),h("th",{text:"Volontaire"}),...VISITS.map(v=>h("th",{},vtag(c,v))),h("th",{})));
@@ -515,7 +530,8 @@ function viewReg(){
       W?h("div",{},h("span",{class:"badge-w",text:"Abandon le "+fmtShort(p.withdrawn)})):null,
       cohortSites(c).length>1?h("div",{},h("span",{class:"site-tag",text:siteName(p.site||(Object.values(b)[0]||{}).site)})):null,
       (p.tel||p.mail)?h("div",{class:"sub mono",style:"font-size:.75rem",text:[p.tel,p.mail].filter(Boolean).join(" · ")}):null,
-      p.source?h("div",{class:"sub",style:"font-size:.72rem",text:p.source==="en ligne"?"inscrit·e en ligne":"inscrit·e par l'équipe"}):null);
+      p.source?h("div",{class:"sub",style:"font-size:.72rem",text:p.source==="en ligne"?"inscrit·e en ligne":"inscrit·e par l'équipe"}):null,
+      data.questOn&&!W?questCell(p,pid):null);
     const cells=VISITS.map(v=>{
       const x=b[v];
       if(x) return h("td",{},h("div",{class:"chip"},h("span",{text:fmtShort(x.date)}),h("span",{class:"mono",text:x.time}),
@@ -539,6 +555,20 @@ function armDelete(btn,fn){
   if(btn.dataset.arm){fn(btn);return;}
   const label=btn.textContent;btn.dataset.arm="1";btn.textContent="Confirmer ?";
   setTimeout(()=>{if(btn.isConnected&&btn.dataset.arm){delete btn.dataset.arm;btn.textContent=label;}},4000);
+}
+/* Questionnaire : badge + boutons (équipe) */
+function questCell(p,pid){
+  const q=p.quest||"";
+  const box=h("div",{style:"display:grid;gap:4px;justify-items:start;margin-top:4px"},
+    q?h("span",{class:"q-ok",title:q==="auto"?"Trouvé dans les réponses du questionnaire":"Coché à la main par l'équipe",text:"✓ Questionnaire rempli"+(q==="manuel"?" (coché)":"")})
+     :h("span",{class:"q-no",text:"✗ Questionnaire non rempli"}));
+  const acts=h("div",{class:"cell-actions"});
+  if(q!=="auto"&&data.people.some(x=>x.pid===pid)) acts.append(h("button",{class:"btn small",title:q?"Retirer la coche":"À utiliser si le questionnaire a été rempli ailleurs (papier, autre outil…)",
+    onclick:async e=>{e.currentTarget.disabled=true;try{applyData(await call("adminSetQuest",pw,pid,!q));render();}catch(err){status(errText(err),"err");}}},q?"Décocher":"Marquer rempli"));
+  if(!q&&p.mail) acts.append(h("button",{class:"btn small",title:"Envoie au volontaire un e-mail avec le lien du questionnaire",
+    onclick:async e=>{const t=e.currentTarget;t.disabled=true;t.textContent="Envoi…";try{await call("adminSendQuest",pw,pid);t.textContent="Relance envoyée";}catch(err){t.textContent="Échec";status(errText(err),"err");}}},"Relancer"));
+  box.append(acts);
+  return box;
 }
 async function doWithdraw(pid,on){try{applyData(await call("adminWithdraw",pw,pid,on));render();}catch(e){status(errText(e),"err");}}
 async function doRemove(pid){try{applyData(await call("adminRemove",pw,pid));render();}catch(e){status(errText(e),"err");}}
@@ -584,7 +614,9 @@ function viewSuivi(){
     kpi(present.length,expected,"Visites réalisées",`${pct(present.length,expected)} % des visites prévues`,barEl(present.length,absent.length,expected)),
     kpi(complete,enrolled.size,"Protocole complet","volontaires venus aux 4 visites"),
     kpi(absent.length,null,"Absences",pending?`${pending} visite(s) passée(s) sans présence cochée`:"toutes les visites passées sont renseignées"),
-    kpi(wset.size,enrolled.size,"Abandons",wset.size?`${pct(wset.size,enrolled.size)} % des inscrits`:"aucun abandon")));
+    kpi(wset.size,enrolled.size,"Abandons",wset.size?`${pct(wset.size,enrolled.size)} % des inscrits`:"aucun abandon"),
+    data.questOn?(()=>{const act=data.people.filter(x=>!x.withdrawn), n=act.filter(x=>x.quest).length;
+      return kpi(n,act.length,"Questionnaires remplis",data.questAuto?"vérifié automatiquement":"cochés à la main",barEl(n,0,act.length||1));})():null));
   // by cohort x visit
   const tbl=h("table",{class:"list prog"});
   tbl.append(h("tr",{},h("th",{text:"Cohorte"}),h("th",{text:"Inscrits"}),...VISITS.map(v=>h("th",{text:v})),h("th",{text:"Total"})));
